@@ -227,21 +227,32 @@ class ObjParser(Parser):
         for name, material in materials.items():
             self.wavefront.materials[name] = material
 
-    @auto_consume
-    def parse_usemtl(self):
-        name = " ".join(self.values[1:])
-        self.material = self.wavefront.materials.get(name, None)
-
+    def _get_or_create_material(self, new_material_name, base_material_name: str = None):
+        self.material = self.wavefront.materials.get(new_material_name, None)
         if self.material is None:
-            if not self.create_materials:
-                raise PywavefrontException('Unknown material: %s' % name)
 
-            # Create a new default material if configured to resolve missing ones
-            self.material = Material(name, is_default=True, has_faces=self.collect_faces)
-            self.wavefront.materials[name] = self.material
+            if base_material_name is not None:
+                # Copying from an existing material
+                from copy import deepcopy
+                base_material = self.wavefront.materials.get(base_material_name, None)
+                assert base_material is not None 
+                self.material = deepcopy(base_material)
+                self.wavefront.materials[new_material_name] = self.material
+            else:
+                if not self.create_materials:
+                    raise PywavefrontException('Unknown material: %s' % new_material_name)
+
+                # Create a new default material if configured to resolve missing ones
+                self.material = Material(new_material_name, is_default=True, has_faces=self.collect_faces)
+                self.wavefront.materials[new_material_name] = self.material
 
         if self.mesh is not None:
             self.mesh.add_material(self.material)
+
+    @auto_consume
+    def parse_usemtl(self):
+        name = " ".join(self.values[1:])
+        self._get_or_create_material(name)
 
     def parse_usemat(self):
         self.parse_usemtl()
@@ -363,10 +374,9 @@ class ObjParser(Parser):
 
         # If the material already have vertex data, ensure the same format is used
         if self.material.vertex_format and self.material.vertex_format != vertex_format:
-            raise ValueError((
-                "Trying to merge vertex data with different format: {}. "
-                "Material {} has vertex format {}"
-            ).format(vertex_format, self.material.name, self.material.vertex_format))
+            print('Trying to merge3 vertex data with different format. Get or create a new material supporting the new vertex format')
+            new_mtl_name = f'{vertex_format}_{self.material.name}'
+            self._get_or_create_material(new_mtl_name, self.material.name)
 
         self.material.vertex_format = vertex_format
 
